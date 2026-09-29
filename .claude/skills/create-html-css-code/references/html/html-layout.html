@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name='viewport' content='width=device-width,initial-scale=1.0,minimum-scale=1.0'>
+  <meta name="format-detection" content="telephone=no"><!-- 모바일 환경에서 아이폰에서 일반숫자나, Datetime 등의 타입 전화번호 인식 방지 -->
+  <title>페이지 제목</title>
+  <link href="" rel="stylesheet"><!-- 샘플 자리표시: 실제 페이지에서는 프로젝트 CSS 경로로 채운다(빈 값은 W3C 오류) -->
+</head>
+<body>
+  <div class="direct-link">
+    <a href="#gnbMenu">메뉴 바로가기</a>
+    <a href="#mainContent">본문 바로가기</a>
+  </div>
+  <div class="wrap wrap_main"><!-- 메인/서브 페이지를 분기 처리하는 클래스로 메인에는 wrap_main 을 적용한다 -->
+    <header class="header"><!-- head_m·head_pc: 해상도 분기로 모바일·PC 헤더를 바꿔치기하는 래퍼(css-writing-guide 의 제목 줄 head_* 예외) -->
+      <div class="head_m">
+        <!-- 모바일 헤더 -->
+        
+      </div>
+      <div class="head_pc">
+        <!-- PC 헤더 — gnb 구조가 들어가는 nav 태그에 id="gnbMenu" 를 붙인다(상단 '메뉴 바로가기' 링크 대상) -->
+        
+      </div>
+    </header>
+
+    <main id="mainContent">
+      <!-- 메인 내용 (서브 페이지는 html-structure-guide 의 서브 페이지 규칙) -->
+      <section class="section_visual"><!-- 섹션마다 고유 클래스 하나만 붙인다. section_ 뒤는 섹션 성격에 맞게 네이밍(visual·search·news 등은 예시) -->
+        <div class="inner_comm"><!-- 컨테이너 클래스는 inner_comm 고정. 폭이 다른 섹션도 변형 클래스를 만들지 말고 .section_xxx .inner_comm 으로 오버라이딩 -->
+          <h2 class="tit_main"></h2><!-- 제목 있을 경우 -->
+          <!-- 내용 -->
+        </div>
+        <!-- // inner_comm -->
+      </section>
+      <!-- // section_visual -->
+      <section class="section_search">
+        <div class="inner_comm">
+          <h2 class="blind"></h2><!-- 제목 안보일 경우 -->
+          <div class="area_"><!-- 2개의 하위 섹션이 있을 경우 area_ 뒤에 영역 성격에 맞게 네이밍 적용 -->
+            <h3 class="tit_main2"></h3><!-- 한 단계 아래 제목, 그 아래는 tit_main3 -->
+            <!-- 내용 -->
+          </div>
+          <div class="area_"><!-- 2개의 하위 섹션이 있을 경우 area_ 뒤에 영역 성격에 맞게 네이밍 적용 -->
+            <!-- 내용 -->
+          </div>
+        </div>
+        <!-- // inner_comm -->
+      </section>
+      <!-- // section_search -->
+      <section class="section_news">
+        <div class="inner_comm">
+          <h2 class="tit_main"></h2><!-- 제목 있을 경우 -->
+          <!-- 내용 -->
+        </div>
+        <!-- // inner_comm -->
+      </section>
+      <!-- // section_news -->
+    </main>
+
+    <footer class="footer">
+      <button type="button" class="btn_top" title="맨 위로">
+        <i class="fa-regular fa-arrow-up-long"></i>
+      </button>
+
+      <!-- Footer 내용 -->
+    </footer>
+  </div>
+  
+  <script src=""></script><!-- 샘플 자리표시: 실제 페이지에서는 프로젝트 JS 경로로 채운다(빈 값은 W3C 오류) -->
+</body>
+</html>

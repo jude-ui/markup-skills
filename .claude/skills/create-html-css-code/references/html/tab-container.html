@@ -1,0 +1,27 @@
+<div class="tab_container">
+  <div class="tab_notice"><!-- tab_{} 시안에 맞게 커스텀 가능 -->
+    <ul role="tablist" class="tab_list">
+      <li role="presentation">
+        <a href="#none" role="tab" data-tab="dataTab1-1" id="tab1-1" class="link_tab" aria-controls="tabPanel1-1" aria-selected="true">탭 1</a><!-- data-tab과 data-tabpanel 속성 값을 맞춰서 스크립트로 탭 패널 제어에 활용 한다 -->
+      </li>
+      <li role="presentation">
+        <a href="#none" role="tab" data-tab="dataTab1-2" id="tab1-2" class="link_tab" aria-controls="tabPanel1-2" aria-selected="false">탭2</a><!-- data-tab과 data-tabpanel 속성 값을 맞춰서 스크립트로 탭 패널 제어에 활용 한다 -->
+      </li>
+      <li role="presentation">
+        <a href="#none" role="tab" data-tab="dataTab1-3" id="tab1-3" class="link_tab" aria-controls="tabPanel1-3" aria-selected="false">탭 3</a><!-- data-tab과 data-tabpanel 속성 값을 맞춰서 스크립트로 탭 패널 제어에 활용 한다 -->
+      </li>
+    </ul>
+  </div>
+  <!-- // tab_notice -->
+
+  <div role="tabpanel" data-tabpanel="dataTab1-1" id="tabPanel1-1" class="tab_panel active" aria-labelledby="tab1-1">
+    <div>탭 패널 1</div><!-- 탭패널 내용은 시안에 맞게 커스텀할 것 -->
+  </div>
+  <div role="tabpanel" data-tabpanel="dataTab1-2" id="tabPanel1-2" class="tab_panel" aria-labelledby="tab1-2">
+    <div>탭 패널 22</div><!-- 탭패널 내용은 시안에 맞게 커스텀할 것 -->
+  </div>
+  <div role="tabpanel" data-tabpanel="dataTab1-3" id="tabPanel1-3" class="tab_panel" aria-labelledby="tab1-3">
+    <div>탭 패널 333</div><!-- 탭패널 내용은 시안에 맞게 커스텀할 것 -->
+  </div>
+</div>
+<!-- // tab_container -->
