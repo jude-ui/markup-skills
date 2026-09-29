@@ -1,0 +1,14 @@
+{
+  "name": "markup-skills",
+  "description": "HTML/CSS 퍼블리싱 스킬 플러그인 마켓",
+  "owner": {
+    "name": "jude-ui"
+  },
+  "plugins": [
+    {
+      "name": "markup",
+      "source": "./plugins/markup",
+      "description": "마크업 작성 규칙, 시안(피그마·이미지) 읽기, 시안을 마크업으로 옮기는 흐름"
+    }
+  ]
+}

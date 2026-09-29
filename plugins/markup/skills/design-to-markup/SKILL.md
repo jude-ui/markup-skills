@@ -2,7 +2,6 @@
 name: design-to-markup
 description: "시안(피그마 링크·프레임, PNG/JPG 이미지)을 받아 HTML/CSS 마크업으로 옮길 때 사용. 시안 형식에 맞는 읽기 스킬(reading-figma / reading-img)과 쓰기 스킬(create-html-css-code)을 이어 쓰고, 옮기는 과정의 판단·대조·보고 기준을 정한다. 시안 없이 HTML/CSS 만 작성할 때는 create-html-css-code 를 직접 호출한다."
 ---
-<!-- version : 2026-09-29 -->
 
 # design-to-markup
 
@@ -17,8 +16,8 @@ description: "시안(피그마 링크·프레임, PNG/JPG 이미지)을 받아 H
 프로젝트 전용 애드온 스킬이 있으면(프로젝트 `CLAUDE.md` 가 함께 호출하라고 지시한다) 각 단계에 그 애드온의 규칙을 더한다. **애드온이 이 스킬이나 쓰기·읽기 스킬의 어느 규칙을 덮어쓴다고 적었으면 애드온을 따른다.**
 
 ## 작업 순서
-1. **시안 읽기** — 피그마면 `reading-figma`, 이미지면 `reading-img` 를 호출해 읽는다. 시안이 없으면 사용자에게 요청한다
-2. **쓰기 규칙 로드** — 마크업을 쓰기 전에 `create-html-css-code` 를 호출한다
+1. **시안 읽기** — 피그마면 `markup:reading-figma`, 이미지면 `markup:reading-img` 를 호출해 읽는다. 시안이 없으면 사용자에게 요청한다
+2. **쓰기 규칙 로드** — 마크업을 쓰기 전에 `markup:create-html-css-code` 를 호출한다
 3. **결과물 위치** — 사용자가 정해 주지 않았으면 프로젝트 규칙을 따른다. 프로젝트 전용 애드온이 함께 불렸으면 그 문서를 따르고, 정해진 규칙이 없으면 사용자에게 확인한다
 4. **옮기기** — 읽은 값을 `references/translating.md` 의 번역 규칙에 따라 구조와 코드로 옮긴다
 5. **대조** — 보고 전에 아래 "대조" 절의 숫자 대조를 한다. 시각 대조는 사용자가 요청할 때만

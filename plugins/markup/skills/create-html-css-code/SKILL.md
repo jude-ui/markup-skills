@@ -2,7 +2,6 @@
 name: create-html-css-code
 description: "HTML/CSS 마크업을 작성·수정할 때 사용. 화면설계서·시안·요청 문구를 보고 페이지나 화면을 마크업하는 작업 모두 포함(ex. '설계안 보고 HTML/CSS 작성해줘', '~페이지 만들어줘')."
 ---
-<!-- version : 2026-09-29 -->
 
 # create-html-css-code
 

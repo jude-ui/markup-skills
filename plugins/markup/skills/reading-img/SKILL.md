@@ -2,7 +2,6 @@
 name: reading-img
 description: "PNG/JPG 이미지 시안만 주어졌을 때 폰트·색·테두리·radius·이미지 배치 값을 픽셀로 실측하고, 구현 결과를 시안과 대조할 때 사용. 시안을 마크업으로 옮기는 작업은 design-to-markup 이 이 스킬을 불러 쓴다. 코드 작성 규칙은 담지 않는다."
 ---
-<!-- version : 2026-09-29 -->
 
 # reading-img
 

@@ -1,0 +1,10 @@
+{
+  "name": "markup",
+  "version": "1.0.0",
+  "description": "HTML/CSS 퍼블리싱 스킬 세트 — 쓰기(create-html-css-code) · 시안 읽기(reading-figma·reading-img) · 시안을 마크업으로 옮기는 흐름(design-to-markup)",
+  "author": {
+    "name": "jude-ui"
+  },
+  "repository": "https://github.com/jude-ui/markup-skills",
+  "keywords": ["html", "css", "markup", "publishing", "figma"]
+}

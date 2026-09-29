@@ -109,3 +109,8 @@ node.getStyledTextSegments(['fontName', 'fontSize'])
 - **스크린샷은 찍지 않는다** — 숫자로만 판단한다. 화면을 눈으로 비교하는 시각 대조는 사용자가 요청할 때만 한다(`design-to-markup` 대조 절)
 - 여러 폭의 가로 넘침은 같은 출처의 페이지를 폭별 iframe 으로 띄워 스크립트 한 번에 잰다(`scrollWidth - clientWidth`). 폭마다 창 크기를 바꾸는 것보다 호출이 적다
 - 테두리가 있는 요소는 피그마의 테두리 정렬(`strokeAlign`)을 함께 확인한다. 차이가 테두리 두께만큼이면 읽기가 아니라 옮기는 쪽 문제다(`design-to-markup` 의 번역 규칙)
+
+### 브라우저 확인 함정
+브라우저 도구로 확인할 때 **측정이 아니라 판독**에서 어긋나는 함정이 둘 있다(Claude 데스크톱 앱의 브라우저 패널에서 확인).
+- **가시성은 계산 스타일로 판정하지 않는다** — `getComputedStyle` 이 `opacity: 0`·`visibility: hidden` 으로 나와도 실제로는 보이는 경우가 있다(CSSOM 순회도 규칙을 못 찾는다). 멀쩡한 요소를 결함으로 보고하게 된다. 보이는지는 스크린샷으로 본다. `getBoundingClientRect` 의 크기·좌표는 정상이다
+- **스크롤한 상태의 스크린샷은 빈 이미지가 나온다**(`scrollY: 0` 이면 정상) — 다른 영역을 `display: none` 으로 감춰 **대상을 문서 최상단에 올린 뒤** 촬영한다

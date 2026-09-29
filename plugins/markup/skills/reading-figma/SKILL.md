@@ -2,7 +2,6 @@
 name: reading-figma
 description: "피그마 MCP 로 시안의 구조·수치·색·에셋을 정확히 읽고, 구현 결과를 시안 수치와 대조할 때 사용. 시안을 마크업으로 옮기는 작업은 design-to-markup 이 이 스킬을 불러 쓴다. 코드 작성 규칙은 담지 않는다."
 ---
-<!-- version : 2026-09-29 -->
 
 # reading-figma
 
