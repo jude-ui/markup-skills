@@ -1,35 +1,45 @@
-"""시안 실측 도구 — reading-img.md 와 함께 쓴다.
+"""시안 실측 도구 — references/design/reading-img.md 와 함께 쓴다.
 
 표준 라이브러리만 쓴다(이미지 라이브러리 불필요). 스크래치패드에 복사해 두고
-`from measure import *` 로 불러 쓴다. 호출 3~5줄로 끝나야 하고,
+`from measure import *` 로 불러 쓴다. macOS·Windows·Linux 공통 — 브라우저를 쓰는 함수는
+Chrome(없으면 Edge)을 headless 로 띄운다. 호출 3~5줄로 끝나야 하고,
 매번 이 안의 로직을 다시 타이핑하지 않는다.
 
 출력은 결론만 찍는다. 원시 스캔 결과를 통째로 print 하지 않는다.
 """
 
-import zlib, struct, statistics
+import sys, zlib, struct, statistics
+
+# 한국어 Windows 는 파이프 출력이 cp949 라 한글이 깨지거나 일부 기호에서 멈춘다 — 출력을 UTF-8 로 고정한다
+if (getattr(sys.stdout, 'encoding', '') or '').lower().replace('-', '') != 'utf8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, ValueError):
+        pass
 
 __all__ = ['Img', 'save', 'crop', 'near', 'notnear', 'ink_box', 'col_runs',
            'row_bands', 'sub_edge', 'density', 'alpha_bbox', 'place', 'diff_count',
            'ClippedBox', 'TOL', 'survey', 'edges', 'radius_fit', 'font_probe', 'shot',
-           'evaljs', 'audit',
+           'evaljs', 'audit', 'to_png', 'font_list',
            'diff_png']
 
 
 # ── PNG 디코딩 ────────────────────────────────────────────────────────────
 class Img:
-    """PNG 를 RGBA 로 디코딩. 8bit, non-interlaced 만 지원."""
+    """PNG 를 RGBA 로 디코딩. 8bit, non-interlaced 만 지원 — 그 밖의 이미지(JPG 등)는 to_png() 로 바꿔 연다."""
 
     def __init__(self, path):
         data = open(path, 'rb').read()
-        assert data[:8] == b'\x89PNG\r\n\x1a\n', path
+        if data[:8] != b'\x89PNG\r\n\x1a\n':
+            raise ValueError('%s 는 PNG 가 아니다 — to_png() 로 변환해 연다' % path)
         pos, idat, plte, trns = 8, b'', None, None
         while pos < len(data):
             ln, = struct.unpack('>I', data[pos:pos + 4])
             typ, chunk = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + ln]
             if typ == b'IHDR':
                 w, h, bitd, ct, _, _, inter = struct.unpack('>IIBBBBB', chunk)
-                assert bitd == 8 and inter == 0, '8bit non-interlaced 만 지원'
+                if bitd != 8 or inter != 0:
+                    raise ValueError('%s — 8bit non-interlaced PNG 만 읽는다. to_png() 로 변환해 연다' % path)
             elif typ == b'IDAT': idat += chunk
             elif typ == b'PLTE': plte = chunk
             elif typ == b'tRNS': trns = chunk
@@ -399,14 +409,29 @@ def radius_fit(im, x_edge, y_flat, inside, outside, side='bl', span=280, skip=4,
 
 # ── 브라우저 ──────────────────────────────────────────────────────────────
 def chrome_bin():
+    """headless 로 띄울 브라우저. CHROME 환경변수 → Chrome → Edge(Windows 기본 탑재) 순으로 찾는다."""
     import os, shutil
-    cand = [os.environ.get('CHROME'),
+    env = os.environ.get
+    win = [os.path.join(base, *rel)
+           for base in (env('PROGRAMFILES'), env('PROGRAMFILES(X86)'), env('LOCALAPPDATA')) if base
+           for rel in (('Google', 'Chrome', 'Application', 'chrome.exe'),
+                       ('Microsoft', 'Edge', 'Application', 'msedge.exe'))]
+    cand = [env('CHROME'),
             '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            shutil.which('google-chrome'), shutil.which('chromium')]
+            *[shutil.which(n) for n in ('google-chrome', 'google-chrome-stable',
+                                        'chromium', 'chromium-browser', 'chrome', 'msedge')],
+            *sorted(win, key=lambda c: 'Edge' in c),
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
     for c in cand:
         if c and os.path.exists(c):
             return c
-    raise RuntimeError('Chrome 을 찾지 못했다. CHROME 환경변수로 경로를 지정할 것.')
+    raise RuntimeError('Chrome·Edge 를 찾지 못했다. CHROME 환경변수로 브라우저 실행 파일 경로를 지정할 것.')
+
+
+def _uri(path):
+    """파일 경로 → 브라우저가 여는 file:/// URI(Windows 드라이브·한글 경로 포함). URL 은 그대로."""
+    import pathlib
+    return path if '://' in path else pathlib.Path(path).resolve().as_uri()
 
 
 def _run(args):
@@ -415,15 +440,70 @@ def _run(args):
                            '--hide-scrollbars', '--force-device-scale-factor=1',
                            '--allow-file-access-from-files',
                            '--virtual-time-budget=6000'] + args,
-                          capture_output=True, text=True).stdout
+                          capture_output=True, text=True, encoding='utf-8',
+                          errors='replace').stdout
 
 
-def shot(path, w, h, out='shot.png'):
-    """1x 스크린샷. h 는 전체 페이지가 담길 만큼 크게 준다(뷰포트만 찍힌다).
-    headless 창 폭 하한은 500px — 그보다 좁은 폭은 evaljs/audit 의 iframe 경로를 쓴다."""
+def _img_size(data):
+    """PNG·JPG·GIF·WebP 헤더에서 (w, h). 모르는 형식이면 None."""
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return struct.unpack('>II', data[16:24])
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return struct.unpack('<HH', data[6:10])
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        k = data[12:16]
+        if k == b'VP8X':
+            return (int.from_bytes(data[24:27], 'little') + 1,
+                    int.from_bytes(data[27:30], 'little') + 1)
+        if k == b'VP8L':
+            b = int.from_bytes(data[21:25], 'little')
+            return (b & 0x3fff) + 1, ((b >> 14) & 0x3fff) + 1
+        if k == b'VP8 ':
+            w, h = struct.unpack('<HH', data[26:30])
+            return w & 0x3fff, h & 0x3fff
+    if data[:2] == b'\xff\xd8':
+        i = 2
+        while i < len(data) - 9:
+            if data[i] != 0xFF:
+                i += 1; continue
+            m = data[i + 1]
+            if m in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                h, w = struct.unpack('>HH', data[i + 5:i + 9])
+                return w, h
+            if m in (0xD8, 0x01) or 0xD0 <= m <= 0xD7:
+                i += 2; continue
+            i += 2 + struct.unpack('>H', data[i + 2:i + 4])[0]
+    return None
+
+
+def to_png(src, out=None):
+    """JPG·GIF·WebP 나 16bit·interlaced PNG 를 Img 가 읽는 8bit PNG 로 바꾼다(브라우저로 원본 크기 그대로 렌더).
+    out 을 주지 않으면 원본 이름 뒤에 _conv.png 를 붙인다(원본을 덮어쓰지 않는다)."""
     import os
-    _run(['--window-size=%d,%d' % (w, h), '--screenshot=' + out,
-          'file://' + os.path.abspath(path)])
+    size = _img_size(open(src, 'rb').read())
+    if not size:
+        raise ValueError('%s — 크기를 읽지 못하는 형식이다' % src)
+    out = out or os.path.splitext(src)[0] + '_conv.png'
+    d = os.path.dirname(os.path.abspath(out))
+    tmp = os.path.join(d, '_to_png.html')
+    open(tmp, 'w', encoding='utf-8').write(
+        '<!DOCTYPE html><meta charset="utf-8"><body style="margin:0">'
+        '<img src="%s" style="display:block" alt="">' % _uri(src))
+    try:
+        _run(['--window-size=%d,%d' % size, '--screenshot=' + out, _uri(tmp)])
+    finally:
+        os.remove(tmp)
+    return out
+
+
+def shot(path, w, h, out='shot.png', scale=1):
+    """스크린샷. w·h 는 결과 이미지 px — h 는 전체 페이지가 담길 만큼 크게 준다(뷰포트만 찍힌다).
+    scale = 시안 배율. 1 이 아니면 CSS 폭 w/scale 로 렌더해 시안과 같은 배율의 이미지를 만든다.
+    path 는 파일 경로 또는 개발 서버 URL.
+    headless 창 폭 하한은 500px — 그보다 좁은 폭은 evaljs/audit 의 iframe 경로를 쓴다."""
+    _run(['--force-device-scale-factor=%g' % scale,
+          '--window-size=%d,%d' % (round(w / scale), round(h / scale)),
+          '--screenshot=' + out, _uri(path)])
     return out
 
 
@@ -441,7 +521,7 @@ def evaljs(path, js, w=1920, h=1200):
     os.close(fd)
     try:
         open(tmp, 'w', encoding='utf-8').write(src.replace('</body>', tag + '</body>'))
-        dom = _run(['--window-size=%d,%d' % (w, h), '--dump-dom', 'file://' + tmp])
+        dom = _run(['--window-size=%d,%d' % (w, h), '--dump-dom', _uri(tmp)])
         m = re.search(r'<pre id="__probe">(.*?)</pre>', dom, re.S)
         return html.unescape(m.group(1)) if m else 'FAIL(주입 결과 없음)'
     finally:
@@ -449,7 +529,7 @@ def evaljs(path, js, w=1920, h=1200):
 
 
 def audit(path, widths=(360, 768, 1200, 1400, 1920), skip=()):
-    """분기별 넘침·찌그러짐을 한 번에 점검한다(reading-img.md §8-2). 360 같은 좁은 폭은 iframe 뷰포트로 본다.
+    """분기별 넘침·찌그러짐을 한 번에 점검한다(references/design/reading-img.md §8-2). 360 같은 좁은 폭은 iframe 뷰포트로 본다.
     skip: 의도적으로 화면 밖에 두는 장식 요소의 class 목록."""
     import os, re, html, tempfile
     sk = '[' + ','.join('"%s"' % c for c in skip) + ']'
@@ -483,7 +563,7 @@ def audit(path, widths=(360, 768, 1200, 1400, 1920), skip=()):
                     'document.getElementById("__probe").textContent='
                     '(function(){const innerWidth=w.innerWidth,document=w.document;%s})()'
                     '},600)})</script>' % (os.path.basename(path), w, body))
-                dom = _run(['--window-size=%d,900' % (w + 40), '--dump-dom', 'file://' + tmp])
+                dom = _run(['--window-size=%d,900' % (w + 40), '--dump-dom', _uri(tmp)])
                 m = re.search(r'<pre id="__probe">(.*?)</pre>', dom, re.S)
                 out.append('%5d %s' % (w, html.unescape(m.group(1)) if m else 'FAIL'))
             finally:
@@ -515,19 +595,152 @@ _WEIGHT = {'thin': 100, 'extralight': 200, 'ultralight': 200, 'light': 300,
            'heavy': 800, 'black': 900}
 
 
-def font_faces(font_dir):
-    """폰트 폴더를 훑어 {family: {weight: path}} 를 만든다. 파일명에서 굵기를 읽는다."""
+_FONT_EXT = {'.woff2': 'woff2', '.woff': 'woff', '.otf': 'opentype', '.ttf': 'truetype'}
+
+
+def _project_root(path):
+    """폰트 파일을 찾을 범위 — .git·package.json 이 있는 가장 가까운 상위 폴더. 없으면 그 파일의 폴더."""
+    import os
+    d = start = os.path.dirname(os.path.abspath(path))
+    while True:
+        if any(os.path.exists(os.path.join(d, m)) for m in ('package.json', '.git')):
+            return d
+        if os.path.dirname(d) == d:
+            return start
+        d = os.path.dirname(d)
+
+
+def _find_font(u, base, root):
+    """CSS 의 url() 경로를 실제 파일로 푼다 — 웹 루트가 어디인지 가정하지 않는다.
+    상대 경로는 먼저 그 CSS 파일의 폴더 기준으로 풀고(CSS 규칙), 안 되면 프로젝트 안에서 경로 끝부분이 가장 길게
+    일치하는 파일을 고른다. SCSS 조각 파일은 빌드 결과 위치 기준으로, `/…` 는 서버 웹 루트 기준으로 적혀 있어
+    파일 위치만으로는 풀리지 않기 때문이다."""
+    import os
+    u = u.split('?')[0].split('#')[0]
+    if not u.startswith('/'):
+        t = os.path.normpath(os.path.join(base, u))
+        if os.path.isfile(t):
+            return t
+    parts = [x for x in u.replace('\\', '/').split('/') if x not in ('', '.', '..')]
+    best, score = None, 0
+    for dp, dns, fns in os.walk(root):
+        dns[:] = [n for n in dns if n not in ('node_modules', '.git')]
+        if parts and parts[-1] in fns:
+            have = os.path.join(dp, parts[-1]).replace('\\', '/').split('/')
+            n = 0
+            while n < min(len(parts), len(have)) and parts[-1 - n] == have[-1 - n]:
+                n += 1
+            if n > score:
+                best, score = os.path.join(dp, parts[-1]), n
+    return best
+
+
+def _font_face_css(path):
+    """로컬 CSS·SCSS·Sass·Less 파일에서 @font-face 블록만 뽑아, url() 을 실제 파일 주소로 바꾼 CSS 로 돌려준다.
+    변수·보간(`$`·`#{`)으로 쓴 블록은 풀 수 없어 건너뛰고 알린다."""
     import os, re
-    fam = {}
+    s = open(path, encoding='utf-8').read()
+    s = re.sub(r'/\*.*?\*/', '', s, flags=re.S)
+    s = re.sub(r'(?<![:\'"(/])//[^\n]*', '', s)            # SCSS 한 줄 주석(url 의 // 는 남긴다)
+    base, root = os.path.dirname(os.path.abspath(path)), _project_root(path)
+    out, skipped, i = [], 0, 0
+    while True:
+        i = s.find('@font-face', i)
+        if i < 0:
+            break
+        j = k = s.find('{', i); depth = 0
+        while k < len(s):
+            depth += {'{': 1, '}': -1}.get(s[k], 0)
+            if depth == 0:
+                break
+            k += 1
+        body, i = s[j + 1:k], k + 1
+        if '$' in body or '#{' in body:
+            skipped += 1
+            continue
+
+        def fix(m):
+            u = m.group(2)
+            if re.match(r'^(data:|[a-z]+://|//)', u, re.I):
+                return m.group(0)
+            f = _find_font(u, base, root)
+            if not f:
+                print('!! 폰트 파일을 찾지 못했다: %s — 이 굵기는 대체 폰트로 렌더되니 판정에 쓰지 말 것' % u)
+            return 'url("%s")' % (_uri(f) if f else u)
+        out.append('@font-face{%s}' % re.sub(r'url\(\s*([\'"]?)(.*?)\1\s*\)', fix, body))
+    if skipped:
+        print('!! %s — 변수·보간으로 쓴 @font-face %d개는 풀지 못했다. 개발 서버 주소나 빌드된 CSS 를 css 로 넘길 것'
+              % (os.path.basename(path), skipped))
+    return '\n'.join(out)
+
+
+def _font_head(css):
+    """css(파일 경로·URL 하나 또는 목록) → 확인용 문서 <head> 에 넣을 태그. URL 은 그대로 불러오고, 로컬 파일은 @font-face 만 뽑는다."""
+    srcs = [css] if isinstance(css, str) else list(css)
+    return ''.join('<link rel="stylesheet" href="%s">' % c if '://' in c
+                   else '<style>%s</style>' % _font_face_css(c) for c in srcs)
+
+
+def font_list(css):
+    """css 의 @font-face 를 브라우저가 읽은 결과 — {family: [weight, ...]}. 굵기 범위(가변 폰트)는 (lo, hi).
+    font_probe 후보는 이 목록 안에서 고른다."""
+    import json
+    js = ('const o={};document.fonts.forEach(f=>{if(f.style!=="normal")return;'
+          '(o[f.family.replace(/^["\']|["\']$/g,"")]=o[f.family.replace(/^["\']|["\']$/g,"")]||[]).push(f.weight)});'
+          'return JSON.stringify(o)')
+    doc = ('<!DOCTYPE html><meta charset="utf-8">%s<pre id="__probe"></pre><script>'
+           'addEventListener("load",()=>setTimeout(()=>{document.getElementById("__probe").textContent='
+           '(function(){%s})()},300))</script>' % (_font_head(css), js))
+    import os, re, html, tempfile
+    fd, tmp = tempfile.mkstemp(suffix='.html'); os.close(fd)
+    try:
+        open(tmp, 'w', encoding='utf-8').write(doc)
+        dom = _run(['--window-size=800,600', '--dump-dom', _uri(tmp)])
+    finally:
+        os.remove(tmp)
+    m = re.search(r'<pre id="__probe">(.*?)</pre>', dom, re.S)
+    raw = json.loads(html.unescape(m.group(1))) if m and m.group(1) else {}
+    norm = {'normal': 400, 'bold': 700}
+    res = {}
+    for fam, ws in raw.items():
+        vals = set()
+        for w in ws:
+            parts = [norm.get(x, None) or int(float(x)) for x in w.split()]
+            vals.add(parts[0] if len(parts) == 1 else tuple(parts))
+        res[fam] = sorted(vals, key=lambda v: v if isinstance(v, int) else v[0])
+    print('\n'.join('%s  %s' % (f, ws) for f, ws in res.items()) or '(@font-face 없음)')
+    return res
+
+
+def font_faces(font_dir):
+    """폰트 폴더를 훑어 {family: {weight: path}} 를 만든다.
+
+    확장자는 woff2·woff·otf·ttf 를 모두 받는다(같은 굵기가 여럿이면 이 순서로 고른다).
+    굵기는 파일명 끝의 굵기 단어(Bold·SemiBold…)나 숫자(100~900)에서 읽는다 — `Pretendard-Bold.subset.woff2` 처럼
+    첫 마침표 뒤는 무시한다. 파일명에 Variable·VF 가 든 가변 폰트는 weight 키를 'var' 로 둔다.
+    이름으로 굵기를 못 읽는 파일(ex. NanumSquareB)과 이탤릭은 건너뛴다 — font_probe 후보에 파일 경로를 직접 넣는다."""
+    import os, re
+    words = '|'.join(sorted(_WEIGHT, key=len, reverse=True)) + '|[1-9]00'
+    fam, rank = {}, {}
     for f in sorted(os.listdir(font_dir)):
-        if not f.endswith('.woff2'):
+        ext = os.path.splitext(f)[1].lower()
+        if ext not in _FONT_EXT:
             continue
-        stem = f[:-6]
-        m = re.match(r'^([A-Za-z]+?)[-_]?(%s)$' % '|'.join(_WEIGHT), stem, re.I)
-        if not m:
+        stem = f.split('.')[0]
+        if 'italic' in stem.lower():
             continue
-        fam.setdefault(m.group(1), {})[_WEIGHT[m.group(2).lower()]] = \
-            os.path.abspath(os.path.join(font_dir, f))
+        v = re.match(r'^(.+?)[-_ ]?(?:variable|vf)$', stem, re.I)
+        m = None if v else re.match(r'^(.+?)[-_ ]?(%s)$' % words, stem, re.I)
+        if v:
+            name, w = v.group(1), 'var'
+        elif m:
+            name, w = m.group(1), _WEIGHT.get(m.group(2).lower()) or int(m.group(2))
+        else:
+            continue
+        r = list(_FONT_EXT).index(ext)
+        if rank.get((name, w), 99) > r:
+            fam.setdefault(name, {})[w] = os.path.abspath(os.path.join(font_dir, f))
+            rank[(name, w)] = r
     return fam
 
 
@@ -547,12 +760,19 @@ def _amap(img, box, fg, bg):
     return out
 
 
-def font_probe(design, box, text, fg, bg, cands, font_dir, out='probe.png',
-               smoothing=True):
-    """후보를 시안과 같은 배경 위에 1x 로 렌더해 폭·높이·밀도·실루엣을 한 번에 대조한다.
+def font_probe(design, box, text, fg, bg, cands, font_dir=None, out='probe.png',
+               smoothing=True, scale=1, css=None):
+    """후보를 시안과 같은 배경 위에 렌더해 폭·높이·밀도·실루엣을 한 번에 대조한다.
 
-    box   = 시안의 잉크박스(ink_box 로 잘림 없이 잰 값)
-    cands = [(family, weight, size_px, ls_em), ...]
+    box   = 시안의 잉크박스(ink_box 로 잘림 없이 잰 값, 시안 px)
+    cands = [(family, weight, size_px, ls_em), ...]  — size 는 CSS px
+            family 는 css 에 선언된 폰트 이름, font_dir 에서 읽은 폰트 이름(font_faces), 또는 폰트 파일 경로
+    css   = 프로젝트의 @font-face 가 있는 파일(css·scss·sass·less)이나 CDN 폰트 CSS 주소(하나 또는 목록).
+            주면 페이지와 같은 선언으로 렌더하고, 선언되지 않은 굵기 후보는 빼고 알린다. 없을 때만 font_dir 를 쓴다
+    scale = 시안 배율(시안 px ÷ CSS px, references/design/reading-img.md §0 에서 확정한 값). 1 이 아니면 반드시 준다.
+    out   = 1배율 대조 이미지 — 행마다 왼쪽에 시안 잉크(1배율로 환산), 오른쪽에 후보.
+            **폰트 높이는 이 이미지를 열어 눈으로 맞춘다.**
+    출력 수치(폭·높이·밀도·차이)는 후보를 시안 배율로 렌더해 시안 px 로 잰 값이다.
     차이(실루엣 평균 알파 오차)가 가장 작은 후보가 답이다.
     **굵기 판정은 한 어절짜리 짧은 문자열로 한다** — 긴 문장은 자간 누적 오차가 굵기 신호를 덮는다.
 
@@ -560,45 +780,84 @@ def font_probe(design, box, text, fg, bg, cands, font_dir, out='probe.png',
     **끄면 획이 두껍게 렌더돼 밀도가 통째로 어긋나 굵기를 한두 단계 무겁게 오판한다.**
     대상 페이지가 그 속성을 쓰지 않을 때만 False."""
     import os, html as _h
-    faces = font_faces(font_dir)
-    used, css, rows = {}, [], []
+    faces = font_faces(font_dir) if font_dir and not css else {}
+    declared = font_list(css) if css else {}
+    face, ff, rows, keep = {}, [], [], []          # (fam, w) → CSS 패밀리 이름 · 직접 만든 @font-face
     for fam, w, fs, ls in cands:
-        if fam not in faces or w not in faces[fam]:
-            raise RuntimeError('%s %d 웨이트 파일이 %s 에 없다' % (fam, w, font_dir))
-        used[(fam, w)] = faces[fam][w]
-    for (fam, w), path in used.items():
-        css.append("@font-face{font-family:%s;font-weight:%d;src:url(file://%s) format('woff2')}"
-                   % (fam, w, path))
+        if (fam, w) in face:
+            keep.append((fam, w, fs, ls)); continue
+        is_file = os.path.splitext(fam)[1].lower() in _FONT_EXT and os.path.exists(fam)
+        if css and not is_file:
+            if fam not in declared:
+                raise RuntimeError('%s 는 css 에 선언되지 않은 폰트다(선언: %s)' % (fam, list(declared)))
+            if not any(v == w if isinstance(v, int) else v[0] <= w <= v[1] for v in declared[fam]):
+                print('!! %s %d — css 에 선언되지 않은 굵기라 후보에서 뺐다. 시안이 이 굵기면 폰트 추가가 필요하다고 보고한다'
+                      % (fam, w))
+                continue
+            face[(fam, w)] = "'%s'" % fam.replace("'", "\\'")         # style 속성(큰따옴표) 안에 들어간다
+            keep.append((fam, w, fs, ls)); continue
+        if is_file:
+            path, wd = os.path.abspath(fam), '1 1000'        # 파일 지정 — 어떤 굵기 요청이든 이 파일로
+        elif fam in faces and 'var' in faces[fam]:
+            path, wd = faces[fam]['var'], '1 1000'           # 가변 폰트 — 요청 굵기를 축으로 렌더
+        elif fam in faces and w in faces[fam]:
+            path, wd = faces[fam][w], str(w)
+        else:
+            raise RuntimeError('%s %d 파일을 %s 에서 찾지 못했다(읽은 굵기: %s) — 후보에 폰트 파일 경로를 직접 넣을 것'
+                               % (fam, w, font_dir, sorted(faces.get(fam, {}), key=str)))
+        face[(fam, w)] = 'p%d' % len(face)
+        ff.append('@font-face{font-family:%s;font-weight:%s;src:url("%s") format("%s")}'
+                  % (face[(fam, w)], wd, _uri(path), _FONT_EXT[os.path.splitext(path)[1].lower()]))
+        keep.append((fam, w, fs, ls))
+    cands = keep
+    if not cands:
+        raise RuntimeError('렌더할 후보가 없다')
+    d = os.path.dirname(os.path.abspath(out)) or '.'
+    P = 4                                          # 시안 잉크 둘레 여백(시안 px)
+    x0, y0, x1, y1 = box
+    cp = crop(design, x0 - P, y0 - P, x1 + P + 1, y1 + P + 1, 1,
+              os.path.join(d, '_probe_crop.png'))
+    cw, ch = (x1 - x0 + 1 + 2 * P) / scale, (y1 - y0 + 1 + 2 * P) / scale
+    X0 = 8 + cw + 24                               # 후보 글자 시작(CSS px) — 수치는 이 오른쪽만 잰다
     for fam, w, fs, ls in cands:
         rows.append('<p style="background:%s;color:%s;font-family:%s;font-weight:%d;'
-                    'font-size:%gpx;letter-spacing:%gem">%s</p>'
-                    % (bg, fg, fam, w, fs, ls, _h.escape(text)))
-    H = 90
+                    'font-size:%gpx;letter-spacing:%gem"><img src="_probe_crop.png" alt="">%s</p>'
+                    % (bg, fg, face[(fam, w)], w, fs, ls, _h.escape(text)))
+    H = max(90, int(ch) + 20)
     sm = ('-webkit-font-smoothing:antialiased;font-synthesis:none;' if smoothing else '')
-    doc = ('<!DOCTYPE html><meta charset="utf-8"><style>%s *{margin:0;padding:0}'
-           'body{width:2400px;%s}p{height:%dpx;line-height:%dpx;white-space:nowrap;'
-           'padding-left:8px}</style><body>%s</body>'
-           % (''.join(css), sm, H, H, ''.join(rows)))
-    tmp = os.path.join(os.path.dirname(os.path.abspath(out)) or '.', '_probe.html')
+    doc = ('<!DOCTYPE html><meta charset="utf-8">%s<style>%s *{margin:0;padding:0}'
+           'body{width:2400px;%s}p{position:relative;height:%dpx;line-height:%dpx;'
+           'white-space:nowrap;padding-left:%gpx}img{position:absolute;top:50%%;left:8px;'
+           'width:%gpx;height:%gpx;transform:translateY(-50%%)}</style><body>%s</body>'
+           % (_font_head(css) if css else '', ''.join(ff), sm, H, H, X0, cw, ch, ''.join(rows)))
+    tmp = os.path.join(d, '_probe.html')
+    num = out if scale == 1 else os.path.join(d, '_probe_num.png')
+    size = '--window-size=2400,%d' % (H * len(cands) + 40)
     open(tmp, 'w', encoding='utf-8').write(doc)
     try:
-        _run(['--window-size=2400,%d' % (H * len(cands) + 40), '--screenshot=' + out,
-              'file://' + tmp])
+        _run([size, '--screenshot=' + out, _uri(tmp)])
+        if scale != 1:                             # 수치용 — 후보를 시안 배율로 렌더(뒤 플래그가 앞을 덮는다)
+            _run(['--force-device-scale-factor=%g' % scale, size,
+                  '--screenshot=' + num, _uri(tmp)])
+        im = Img(num)
     finally:
-        os.remove(tmp)
+        for f in {tmp, cp, num} - {out}:
+            if os.path.exists(f):
+                os.remove(f)
 
     def hx(c):
         c = c.lstrip('#')
         return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
     FG, BG = hx(fg), hx(bg)
-    im = Img(out)
     A = _amap(design, box, FG, BG)
     dh, dw = len(A), len(A[0])
-    print('시안  w%-4d h%-3d den %.3f  "%s"'
-          % (dw, dh, density(design, box, FG, BG), text))
+    print('시안  w%-4d h%-3d den %.3f  "%s"%s'
+          % (dw, dh, density(design, box, FG, BG), text,
+             '' if scale == 1 else '  (1배율 w%.0f h%.0f)' % (dw / scale, dh / scale)))
     res = []
     for i, (fam, w, fs, ls) in enumerate(cands):
-        b = ink_box(im, 0, i * H, 2400, (i + 1) * H, notnear(BG, 20))
+        b = ink_box(im, int(X0 * scale) - 2, int(i * H * scale), im.w,
+                    int((i + 1) * H * scale), notnear(BG, 20))
         if b is None:
             continue
         B = _amap(im, b, FG, BG); bh, bw = len(B), len(B[0])
@@ -612,7 +871,7 @@ def font_probe(design, box, text, fg, bg, cands, font_dir, out='probe.png',
                         bv = B[y + oy][x + ox] if 0 <= y + oy < bh and 0 <= x + ox < bw else 0
                         s += abs(av - bv); n += 1
                 best = min(best, s / n)
-        res.append((best, '%s %d / %gpx / ls%g' % (fam, w, fs, ls),
+        res.append((best, '%s %d / %gpx / ls%g' % (os.path.basename(fam), w, fs, ls),
                     bw, bh, density(im, b, FG, BG)))
     for v, lab, bw, bh, de in sorted(res):
         print('  %-26s w%-4d h%-3d den %.3f  차이 %.4f  %s'
